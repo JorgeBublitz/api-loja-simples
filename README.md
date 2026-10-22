@@ -51,11 +51,9 @@ dotnet test
 
 ## Pipeline
 
-O workflow `.github/workflows/ci.yml` tem 3 jobs, disparados a cada push em `main`/`develop` e em pull requests para essas branches:
+O workflow `.github/workflows/ci.yml` tem **um único job**, disparado a cada push em `main`/`develop` e em pull requests para essas branches:
 
-- **Build e Testes** — `restore` → `build` → `test` (8 testes)
-- **Verificacao de Formatacao** — `dotnet format whitespace --verify-no-changes` (roda em paralelo com o anterior)
-- **CI Aprovado** — job final com `needs:`, que só é executado se os dois anteriores passarem
+- **Build e Testes** — checkout → setup-dotnet 8 → `restore` → `build` → `test` (8 testes)
 
 ## Fluxo Gitflow
 
