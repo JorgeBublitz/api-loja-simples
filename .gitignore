@@ -1,0 +1,23 @@
+## .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+artifacts/
+
+## IDE
+.vs/
+.idea/
+*.swp
+
+## Test results
+[Tt]est[Rr]esult*/
+TestResults/
+coverage/
+
+## OS
+.DS_Store
+Thumbs.db
