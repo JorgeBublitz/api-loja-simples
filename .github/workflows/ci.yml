@@ -7,7 +7,7 @@ on:
     branches: [main, develop]
 
 jobs:
-  build:
+  build-and-test:
     name: Build e Testes
     runs-on: ubuntu-latest
 
@@ -28,3 +28,31 @@ jobs:
 
       - name: Testes
         run: dotnet test --no-build --configuration Release --verbosity normal
+
+  format-check:
+    name: Verificacao de Formatacao
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Verificar formatacao (whitespace)
+        run: dotnet format whitespace --verify-no-changes
+
+  ci-ok:
+    name: CI Aprovado
+    needs: [build-and-test, format-check]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Tudo verde
+        run: echo "Build, testes e formatacao aprovados. CI concluido!"
