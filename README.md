@@ -11,7 +11,7 @@ Projeto de estudo com foco em: repositório no GitHub, pipeline de CI (GitHub Ac
 - .NET 8 (Minimal API) - dados em memória, sem banco externo
 - xUnit - testes de domínio (sem subir servidor HTTP)
 - GitHub Actions - pipeline de build e testes
-- Gitflow - `main`, `develop`, branches `feature/*` e `release/*`
+- Gitflow - `main`, `develop`, branches `feature/*`, `release/*` e `hotfix/*`
 
 ## Endpoints
 
@@ -51,7 +51,11 @@ dotnet test
 
 ## Pipeline
 
-O workflow `.github/workflows/ci.yml` roda `restore`, `build` e `test` a cada push em `main`/`develop` e em pull requests para essas branches.
+O workflow `.github/workflows/ci.yml` tem 3 jobs, disparados a cada push em `main`/`develop` e em pull requests para essas branches:
+
+- **Build e Testes** — `restore` → `build` → `test` (8 testes)
+- **Verificacao de Formatacao** — `dotnet format whitespace --verify-no-changes` (roda em paralelo com o anterior)
+- **CI Aprovado** — job final com `needs:`, que só é executado se os dois anteriores passarem
 
 ## Fluxo Gitflow
 
@@ -59,3 +63,4 @@ O workflow `.github/workflows/ci.yml` roda `restore`, `build` e `test` a cada pu
 - `develop`: integração contínua do desenvolvimento
 - `feature/*`: novas funcionalidades, mescladas via pull request no `develop`
 - `release/*`: preparação de versão, mesclada no `main`
+- `hotfix/*`: correção urgente em produção, mesclada no `main` e de volta no `develop`
