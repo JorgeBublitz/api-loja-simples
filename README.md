@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/JorgeBublitz/api-loja-simples/actions/workflows/ci.yml/badge.svg)
 
-API REST simples de loja (produtos e pedidos) em **.NET 8** — versão 1.0.0.
+API REST simples de loja (produtos e pedidos) em **.NET 8** — versão 1.0.1.
 
 Projeto de estudo com foco em: repositório no GitHub, pipeline de CI (GitHub Actions) e fluxo Gitflow.
 
