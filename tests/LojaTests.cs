@@ -15,7 +15,7 @@ public class LojaTests
         return loja;
     }
 
-    [Fact]
+    [Fact] // Fact é o atributo do xUnit que marca um método como teste
     public void AdicionarProduto_RegistraNoCatalogoComId()
     {
         var loja = new Loja();
