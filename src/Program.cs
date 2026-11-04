@@ -39,7 +39,9 @@ app.MapPut("/produtos/{id:int}", (int id, ProdutoDto dto, Loja loja) =>
 });
 
 app.MapDelete("/produtos/{id:int}", (int id, Loja loja) =>
-    loja.RemoverProduto(id) ? Results.NoContent() : Results.NotFound());
+    loja.RemoverProduto(id) 
+        ? Results.NoContent() 
+        : Results.NotFound(new { erro = "Produto não encontrado." })); // 
 
 // --- Pedidos ---
 

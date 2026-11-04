@@ -1,30 +1,30 @@
-name: CI
+  name: CI
 
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  on:
+    push:
+      branches: [main, develop]
+    pull_request:
+      branches: [main, develop]
 
-jobs:
-  build-e-testes:
-    name: Build e Testes
-    runs-on: ubuntu-latest
+  jobs:
+    build-e-testes:
+      name: Build e Testes
+      runs-on: ubuntu-latest
 
-    steps:
-      - name: 1. Checkout do codigo
-        uses: actions/checkout@v4
+      steps:
+        - name: 1. Checkout do codigo
+          uses: actions/checkout@v4
 
-      - name: 2. Configurar .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
+        - name: 2. Configurar .NET 8
+          uses: actions/setup-dotnet@v4
+          with:
+            dotnet-version: 8.0.x
 
-      - name: 3. Restore
-        run: dotnet restore
+        - name: 3. Restore
+          run: dotnet restore
 
-      - name: 4. Build
-        run: dotnet build --no-restore --configuration Release
+        - name: 4. Build
+          run: dotnet build --no-restore --configuration Release
 
-      - name: 5. Testes
-        run: dotnet test --no-build --configuration Release --verbosity normal
+        - name: 5. Testes
+          run: dotnet test --no-build --configuration Release --verbosity normal
