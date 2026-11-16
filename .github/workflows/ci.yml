@@ -47,9 +47,9 @@ jobs:
             --config p/javascript \
             --config p/security-audit \
             --config p/owasp-top-ten \
+            --severity ERROR \
             --error \
-            --sarif \
-            --output /src/semgrep-results.sarif \
+            --sarif-output=/src/semgrep-results.sarif \
             /src
 
       - name: 3. Publicar relatorio SAST (Semgrep SARIF)
@@ -79,12 +79,17 @@ jobs:
       - name: 4. Executar DevSkim e validar achados criticos/importantes
         run: |
           devskim analyze \
-            --source-code . \
-            --output-file devskim-results.sarif \
-            --output-format sarif \
-            --severity Critical,Important \
-            --ignore-globs "**/bin/**,**/obj/**,**/.git/**" \
-            --exit-code-is-num-issues
+            -I . \
+            -f text \
+            -s Critical,Important \
+            -g "**/.git/**,**/bin/**,**/obj/**"
+          devskim analyze \
+            -I . \
+            -O devskim-results.sarif \
+            -f sarif \
+            -s Critical,Important \
+            -g "**/.git/**,**/bin/**,**/obj/**" \
+            -E
 
       - name: 5. Publicar relatorio SAST (DevSkim SARIF)
         if: always()
