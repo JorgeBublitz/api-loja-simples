@@ -144,7 +144,7 @@ jobs:
             -f openapi \
             -c rules.tsv \
             -T 3 \
-            -z "-config ascan.maxScanDurationInMins=2 -config ascan.maxRuleDurationInMins=1" \
+            -z "-config scanner.maxScanDurationInMins=2 -config scanner.maxRuleDurationInMins=1" \
             -r zap-api-report.html \
             -J zap-api-report.json
           ZAP_EXIT=$?
