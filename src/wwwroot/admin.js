@@ -29,6 +29,12 @@
   };
 
   const els = {
+    loginSection: document.getElementById("admin-login-section"),
+    adminConteudo: document.getElementById("admin-conteudo"),
+    formLogin: document.getElementById("form-login-admin"),
+    loginUsuario: document.getElementById("login-usuario"),
+    loginSenha: document.getElementById("login-senha"),
+    btnLogout: document.getElementById("btn-logout-admin"),
     statFaturamento: document.getElementById("stat-faturamento"),
     statProdutos: document.getElementById("stat-produtos"),
     statEstoque: document.getElementById("stat-estoque"),
@@ -86,11 +92,24 @@
     return FALLBACK_IMAGE;
   }
 
+  const TOKEN_KEY = "nexus_admin_jwt";
+
   async function apiFetch(url, options = {}) {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-      ...options
+      ...options,
+      headers
     });
+    if (res.status === 401) {
+      sessionStorage.removeItem(TOKEN_KEY);
+      atualizarVisaoAuth();
+      throw new Error("Sessão expirada ou não autorizada. Faça login.");
+    }
     if (!res.ok) {
       let detail = `Erro ${res.status}`;
       try {
@@ -103,6 +122,14 @@
     }
     if (res.status === 204) return null;
     return res.json();
+  }
+
+  function atualizarVisaoAuth() {
+    const autenticado = Boolean(sessionStorage.getItem(TOKEN_KEY));
+    els.loginSection.classList.toggle("hidden", autenticado);
+    els.adminConteudo.classList.toggle("hidden", !autenticado);
+    els.btnLogout.classList.toggle("hidden", !autenticado);
+    return autenticado;
   }
 
   function createEmptyState(texto) {
@@ -518,5 +545,33 @@
 
   els.formProduto.addEventListener("submit", salvarProduto);
 
-  carregarTudo();
+  els.formLogin.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          usuario: els.loginUsuario.value.trim(),
+          senha: els.loginSenha.value
+        })
+      });
+      sessionStorage.setItem(TOKEN_KEY, res.token);
+      els.formLogin.reset();
+      atualizarVisaoAuth();
+      showToast(`Bem-vindo, ${res.usuario}!`);
+      await carregarTudo();
+    } catch (err) {
+      showToast("Usuário ou senha inválidos.", true);
+    }
+  });
+
+  els.btnLogout.addEventListener("click", () => {
+    sessionStorage.removeItem(TOKEN_KEY);
+    atualizarVisaoAuth();
+    showToast("Você saiu do painel.");
+  });
+
+  if (atualizarVisaoAuth()) {
+    carregarTudo();
+  }
 })();

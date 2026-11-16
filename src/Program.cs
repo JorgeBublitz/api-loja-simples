@@ -1,10 +1,64 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using ApiLoja;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var connectionString = builder.Configuration.GetConnectionString("Default") ?? "Data Source=nexus_loja.db";
+builder.Services.AddDbContext<LojaDbContext>(opt => opt.UseSqlite(connectionString));
+builder.Services.AddScoped<Loja>();
+
+var signingKeyBytes = Environment.GetEnvironmentVariable("JWT_SIGNING_KEY") is { Length: >= 32 } envKey
+    ? Encoding.UTF8.GetBytes(envKey)
+    : RandomNumberGenerator.GetBytes(32);
+var signingKey = new SymmetricSecurityKey(signingKeyBytes);
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = "NexusTech",
+            ValidAudience = "NexusTechAdmin",
+            IssuerSigningKey = signingKey
+        };
+    });
+builder.Services.AddAuthorization();
+
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddSingleton<Loja>();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Admin via POST /auth/login. Exemplo: Bearer {token}",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
 
@@ -28,21 +82,30 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
-// Catálogo inicial para demonstração na interface web
-var lojaInicial = app.Services.GetRequiredService<Loja>();
-if (lojaInicial.Produtos.Count == 0)
+// Garante criação do banco SQLite e catálogo inicial na primeira execução
+using (var scope = app.Services.CreateScope())
 {
-    lojaInicial.AdicionarProduto("PlayStation 5 Slim 1TB", 3799.00m, 8, "/images/ps5.jpg", "Consoles");
-    lojaInicial.AdicionarProduto("GTA VI — Edição Padrão (PS5)", 349.90m, 25, "/images/gta6.jpg", "Jogos");
-    lojaInicial.AdicionarProduto("Nintendo Switch OLED", 2199.00m, 6, "/images/switch.jpg", "Consoles");
-    lojaInicial.AdicionarProduto("Controle DualSense PS5", 449.90m, 15, "/images/dualsense.jpg", "Periféricos");
-    lojaInicial.AdicionarProduto("iPhone 16 Pro Max 256GB", 8999.00m, 5, "/images/iphone.jpg", "Smartphones");
-    lojaInicial.AdicionarProduto("MacBook Pro M4 14\"", 14499.00m, 3, "/images/macbook.jpg", "Notebooks");
-    lojaInicial.AdicionarProduto("Headset Studio ANC", 589.00m, 12, "/images/headset.jpg", "Áudio");
-    lojaInicial.AdicionarProduto("Monitor 4K Ultrafino 27\"", 1899.00m, 4, "/images/monitor.jpg", "Monitores");
+    var db = scope.ServiceProvider.GetRequiredService<LojaDbContext>();
+    db.Database.EnsureCreated();
+
+    var lojaInicial = scope.ServiceProvider.GetRequiredService<Loja>();
+    if (lojaInicial.Produtos.Count == 0)
+    {
+        lojaInicial.AdicionarProduto("PlayStation 5 Slim 1TB", 3799.00m, 8, "/images/ps5.jpg", "Consoles");
+        lojaInicial.AdicionarProduto("GTA VI — Edição Padrão (PS5)", 349.90m, 25, "/images/gta6.jpg", "Jogos");
+        lojaInicial.AdicionarProduto("Nintendo Switch OLED", 2199.00m, 6, "/images/switch.jpg", "Consoles");
+        lojaInicial.AdicionarProduto("Controle DualSense PS5", 449.90m, 15, "/images/dualsense.jpg", "Periféricos");
+        lojaInicial.AdicionarProduto("iPhone 16 Pro Max 256GB", 8999.00m, 5, "/images/iphone.jpg", "Smartphones");
+        lojaInicial.AdicionarProduto("MacBook Pro M4 14\"", 14499.00m, 3, "/images/macbook.jpg", "Notebooks");
+        lojaInicial.AdicionarProduto("Headset Studio ANC", 589.00m, 12, "/images/headset.jpg", "Áudio");
+        lojaInicial.AdicionarProduto("Monitor 4K Ultrafino 27\"", 1899.00m, 4, "/images/monitor.jpg", "Monitores");
+    }
 }
 
 static string? SanitizarImagemUrl(string? url)
@@ -57,16 +120,43 @@ static string? SanitizarImagemUrl(string? url)
     return null;
 }
 
+// --- Autenticação Admin ---
+
+app.MapPost("/auth/login", (LoginDto dto) =>
+{
+    var expectedUser = Environment.GetEnvironmentVariable("ADMIN_USER") ?? "admin";
+    var expectedAccess = Environment.GetEnvironmentVariable("ADMIN_ACCESS") ?? "nexus2026";
+
+    if (!string.Equals(dto.Usuario?.Trim(), expectedUser, StringComparison.Ordinal) ||
+        !string.Equals(dto.Senha, expectedAccess, StringComparison.Ordinal))
+    {
+        return Results.Unauthorized();
+    }
+
+    var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+    var jwt = new JwtSecurityToken(
+        issuer: "NexusTech",
+        audience: "NexusTechAdmin",
+        claims: [new Claim(ClaimTypes.Name, expectedUser), new Claim(ClaimTypes.Role, "Admin")],
+        expires: DateTime.UtcNow.AddHours(8),
+        signingCredentials: credentials);
+
+    var token = new JwtSecurityTokenHandler().WriteToken(jwt);
+    return Results.Ok(new { token, usuario = expectedUser });
+}).WithTags("Autenticação");
+
 // --- Sistema / Métricas ---
 
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
     versao = "1.2.0",
+    banco = "sqlite",
     timestamp = DateTime.UtcNow
 })).WithTags("Sistema");
 
 app.MapGet("/resumo", (Loja loja) => Results.Ok(loja.ObterResumo()))
+    .RequireAuthorization()
     .WithTags("Sistema");
 
 // --- Categorias & Produtos ---
@@ -92,7 +182,7 @@ app.MapPost("/produtos", (ProdutoDto dto, Loja loja) =>
     var imagemUrl = SanitizarImagemUrl(dto.ImagemUrl);
     var produto = loja.AdicionarProduto(dto.Nome.Trim(), dto.Preco, dto.Estoque, imagemUrl, dto.Categoria);
     return Results.Created($"/produtos/{produto.Id}", produto);
-}).WithTags("Produtos");
+}).RequireAuthorization().WithTags("Produtos");
 
 app.MapPut("/produtos/{id:int}", (int id, ProdutoDto dto, Loja loja) =>
 {
@@ -104,7 +194,7 @@ app.MapPut("/produtos/{id:int}", (int id, ProdutoDto dto, Loja loja) =>
     var imagemUrl = SanitizarImagemUrl(dto.ImagemUrl);
     var produto = loja.AtualizarProduto(id, dto.Nome.Trim(), dto.Preco, dto.Estoque, imagemUrl, dto.Categoria);
     return produto is null ? Results.NotFound() : Results.Ok(produto);
-}).WithTags("Produtos");
+}).RequireAuthorization().WithTags("Produtos");
 
 app.MapPatch("/produtos/{id:int}/estoque", (int id, AjusteEstoqueDto dto, Loja loja) =>
 {
@@ -113,11 +203,11 @@ app.MapPatch("/produtos/{id:int}/estoque", (int id, AjusteEstoqueDto dto, Loja l
     return erro == "Produto não encontrado."
         ? Results.NotFound(new { erro })
         : Results.BadRequest(new { erro });
-}).WithTags("Produtos");
+}).RequireAuthorization().WithTags("Produtos");
 
 app.MapDelete("/produtos/{id:int}", (int id, Loja loja) =>
     loja.RemoverProduto(id) ? Results.NoContent() : Results.NotFound())
-    .WithTags("Produtos");
+    .RequireAuthorization().WithTags("Produtos");
 
 // --- Cupons ---
 
@@ -130,7 +220,7 @@ app.MapPost("/cupons", (CupomDto dto, Loja loja) =>
     return cupom is not null
         ? Results.Created($"/cupons/{cupom.Codigo}", cupom)
         : Results.BadRequest(new { erro });
-}).WithTags("Cupons");
+}).RequireAuthorization().WithTags("Cupons");
 
 app.MapPost("/cupons/validar", (ValidarCupomDto dto, Loja loja) =>
 {
@@ -142,7 +232,7 @@ app.MapPost("/cupons/validar", (ValidarCupomDto dto, Loja loja) =>
 
 app.MapDelete("/cupons/{codigo}", (string codigo, Loja loja) =>
     loja.RemoverCupom(codigo) ? Results.NoContent() : Results.NotFound())
-    .WithTags("Cupons");
+    .RequireAuthorization().WithTags("Cupons");
 
 // --- Pedidos ---
 
@@ -173,7 +263,7 @@ app.MapPatch("/pedidos/{id:int}/status", (int id, AtualizarStatusDto dto, Loja l
     return erro == "Pedido não encontrado."
         ? Results.NotFound(new { erro })
         : Results.BadRequest(new { erro });
-}).WithTags("Pedidos");
+}).RequireAuthorization().WithTags("Pedidos");
 
 app.MapPost("/pedidos/{id:int}/cancelar", (int id, Loja loja) =>
 {
@@ -182,7 +272,7 @@ app.MapPost("/pedidos/{id:int}/cancelar", (int id, Loja loja) =>
     return erro == "Pedido não encontrado."
         ? Results.NotFound(new { erro })
         : Results.BadRequest(new { erro });
-}).WithTags("Pedidos");
+}).RequireAuthorization().WithTags("Pedidos");
 
 app.Run();
 

@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+
 namespace ApiLoja;
 
 public record Produto(
@@ -18,6 +20,7 @@ public record ProdutoDto(
 public record AjusteEstoqueDto(int Quantidade);
 public record AtualizarStatusDto(string Status);
 public record ValidarCupomDto(string Codigo);
+public record LoginDto(string Usuario, string Senha);
 public record CupomDto(
     string Codigo,
     decimal PercentualDesconto,
@@ -54,12 +57,13 @@ public record ResumoLoja(
     Dictionary<string, int> PedidosPorStatus);
 
 /// <summary>
-/// Domínio da loja: catálogo de produtos, cupons, pedidos e métricas em memória.
+/// Domínio da loja: catálogo de produtos, cupons, pedidos e métricas (em memória ou persistido em SQLite).
 /// </summary>
 public class Loja
 {
     private static readonly string[] StatusValidos = ["Pendente", "Pago", "Enviado", "Entregue", "Cancelado"];
 
+    private readonly LojaDbContext? _db;
     private readonly List<Produto> _produtos = [];
     private readonly List<Pedido> _pedidos = [];
     private readonly List<Cupom> _cupons =
@@ -71,13 +75,52 @@ public class Loja
     private int _proximoIdProduto = 1;
     private int _proximoIdPedido = 1;
 
-    public IReadOnlyList<Produto> Produtos => _produtos;
-    public IReadOnlyList<Pedido> Pedidos => _pedidos;
-    public IReadOnlyList<Cupom> Cupons => _cupons;
+    public Loja() { }
+
+    public Loja(LojaDbContext db)
+    {
+        _db = db;
+        SemearCuponsIniciais();
+    }
+
+    private void SemearCuponsIniciais()
+    {
+        if (_db is null || _db.Cupons.Any()) return;
+        _db.Cupons.AddRange(
+            new CupomEntity { Codigo = "BEMVINDO10", PercentualDesconto = 10m, Ativo = true, LimiteUsos = 1000, UsosAtuais = 0 },
+            new CupomEntity { Codigo = "TECH20", PercentualDesconto = 20m, Ativo = true, LimiteUsos = 500, UsosAtuais = 0 });
+        _db.SaveChanges();
+    }
+
+    private static Produto ToRecord(ProdutoEntity e) =>
+        new(e.Id, e.Nome, e.Preco, e.Estoque, e.ImagemUrl, e.Categoria);
+
+    private static Cupom ToRecord(CupomEntity e) =>
+        new(e.Codigo, e.PercentualDesconto, e.Ativo, e.ExpiraEm, e.LimiteUsos, e.UsosAtuais);
+
+    private static Pedido ToRecord(PedidoEntity e) =>
+        new(e.Id,
+            e.CriadoEm,
+            e.Itens.Select(i => new ItemPedido(i.ProdutoId, i.NomeProduto, i.Quantidade, i.PrecoUnitario)).ToList(),
+            e.Total,
+            e.Status,
+            e.CupomAplicado,
+            e.Desconto);
+
+    public IReadOnlyList<Produto> Produtos =>
+        _db is null ? _produtos : _db.Produtos.AsNoTracking().OrderBy(p => p.Id).Select(ToRecord).ToList();
+
+    public IReadOnlyList<Pedido> Pedidos =>
+        _db is null
+            ? _pedidos
+            : _db.Pedidos.AsNoTracking().Include(p => p.Itens).OrderBy(p => p.Id).Select(ToRecord).ToList();
+
+    public IReadOnlyList<Cupom> Cupons =>
+        _db is null ? _cupons : _db.Cupons.AsNoTracking().OrderBy(c => c.Codigo).Select(ToRecord).ToList();
 
     public IReadOnlyList<Produto> ListarProdutos(string? categoria = null, string? busca = null, string? ordenar = null)
     {
-        IEnumerable<Produto> query = _produtos;
+        IEnumerable<Produto> query = Produtos;
 
         if (!string.IsNullOrWhiteSpace(categoria) && !categoria.Equals("Todas", StringComparison.OrdinalIgnoreCase))
         {
@@ -102,13 +145,18 @@ public class Loja
     }
 
     public IReadOnlyList<CategoriaResumo> ListarCategorias() =>
-        _produtos
+        Produtos
             .GroupBy(p => p.Categoria)
             .Select(g => new CategoriaResumo(g.Key, g.Count()))
             .OrderBy(c => c.Nome)
             .ToList();
 
-    public Produto? BuscarProduto(int id) => _produtos.FirstOrDefault(p => p.Id == id);
+    public Produto? BuscarProduto(int id)
+    {
+        if (_db is null) return _produtos.FirstOrDefault(p => p.Id == id);
+        var entity = _db.Produtos.AsNoTracking().FirstOrDefault(p => p.Id == id);
+        return entity is null ? null : ToRecord(entity);
+    }
 
     public Produto AdicionarProduto(
         string nome,
@@ -118,9 +166,24 @@ public class Loja
         string? categoria = null)
     {
         var cat = string.IsNullOrWhiteSpace(categoria) ? "Geral" : categoria.Trim();
-        var produto = new Produto(_proximoIdProduto++, nome, preco, estoque, imagemUrl, cat);
-        _produtos.Add(produto);
-        return produto;
+        if (_db is null)
+        {
+            var produto = new Produto(_proximoIdProduto++, nome, preco, estoque, imagemUrl, cat);
+            _produtos.Add(produto);
+            return produto;
+        }
+
+        var entity = new ProdutoEntity
+        {
+            Nome = nome,
+            Preco = preco,
+            Estoque = estoque,
+            ImagemUrl = imagemUrl,
+            Categoria = cat
+        };
+        _db.Produtos.Add(entity);
+        _db.SaveChanges();
+        return ToRecord(entity);
     }
 
     public Produto? AtualizarProduto(
@@ -131,42 +194,78 @@ public class Loja
         string? imagemUrl = null,
         string? categoria = null)
     {
-        var produto = BuscarProduto(id);
-        if (produto is null) return null;
-
-        var cat = string.IsNullOrWhiteSpace(categoria) ? produto.Categoria : categoria.Trim();
-        var atualizado = produto with
+        if (_db is null)
         {
-            Nome = nome,
-            Preco = preco,
-            Estoque = estoque,
-            ImagemUrl = imagemUrl ?? produto.ImagemUrl,
-            Categoria = cat
-        };
-        _produtos[_produtos.IndexOf(produto)] = atualizado;
-        return atualizado;
+            var produto = _produtos.FirstOrDefault(p => p.Id == id);
+            if (produto is null) return null;
+
+            var cat = string.IsNullOrWhiteSpace(categoria) ? produto.Categoria : categoria.Trim();
+            var atualizado = produto with
+            {
+                Nome = nome,
+                Preco = preco,
+                Estoque = estoque,
+                ImagemUrl = imagemUrl ?? produto.ImagemUrl,
+                Categoria = cat
+            };
+            _produtos[_produtos.IndexOf(produto)] = atualizado;
+            return atualizado;
+        }
+
+        var entity = _db.Produtos.FirstOrDefault(p => p.Id == id);
+        if (entity is null) return null;
+
+        entity.Nome = nome;
+        entity.Preco = preco;
+        entity.Estoque = estoque;
+        if (imagemUrl is not null) entity.ImagemUrl = imagemUrl;
+        if (!string.IsNullOrWhiteSpace(categoria)) entity.Categoria = categoria.Trim();
+        _db.SaveChanges();
+        return ToRecord(entity);
     }
 
     public (Produto? produto, string? erro) AjustarEstoque(int id, int quantidade)
     {
-        var produto = BuscarProduto(id);
-        if (produto is null) return (null, "Produto não encontrado.");
+        if (_db is null)
+        {
+            var produto = _produtos.FirstOrDefault(p => p.Id == id);
+            if (produto is null) return (null, "Produto não encontrado.");
 
-        var novoEstoque = produto.Estoque + quantidade;
-        if (novoEstoque < 0)
+            var novoEstoque = produto.Estoque + quantidade;
+            if (novoEstoque < 0)
+                return (null, "Estoque resultante não pode ser negativo.");
+
+            var atualizado = produto with { Estoque = novoEstoque };
+            _produtos[_produtos.IndexOf(produto)] = atualizado;
+            return (atualizado, null);
+        }
+
+        var entity = _db.Produtos.FirstOrDefault(p => p.Id == id);
+        if (entity is null) return (null, "Produto não encontrado.");
+
+        var novo = entity.Estoque + quantidade;
+        if (novo < 0)
             return (null, "Estoque resultante não pode ser negativo.");
 
-        var atualizado = produto with { Estoque = novoEstoque };
-        _produtos[_produtos.IndexOf(produto)] = atualizado;
-        return (atualizado, null);
+        entity.Estoque = novo;
+        _db.SaveChanges();
+        return (ToRecord(entity), null);
     }
 
     public bool RemoverProduto(int id)
     {
-        var produto = BuscarProduto(id);
-        if (produto is null) return false;
+        if (_db is null)
+        {
+            var produto = _produtos.FirstOrDefault(p => p.Id == id);
+            if (produto is null) return false;
+            _produtos.Remove(produto);
+            return true;
+        }
 
-        _produtos.Remove(produto);
+        var entity = _db.Produtos.FirstOrDefault(p => p.Id == id);
+        if (entity is null) return false;
+        _db.Produtos.Remove(entity);
+        _db.SaveChanges();
         return true;
     }
 
@@ -176,32 +275,60 @@ public class Loja
             return (null, "Código do cupom é obrigatório.");
 
         var codigo = dto.Codigo.Trim().ToUpperInvariant();
-        if (_cupons.Any(c => c.Codigo.Equals(codigo, StringComparison.OrdinalIgnoreCase)))
-            return (null, $"Já existe um cupom com o código '{codigo}'.");
-
         if (dto.PercentualDesconto <= 0 || dto.PercentualDesconto > 100)
             return (null, "O desconto deve estar entre 1% e 100%.");
 
         if (dto.LimiteUsos is <= 0)
             return (null, "O limite de usos deve ser maior que zero.");
 
-        var cupom = new Cupom(
-            codigo,
-            dto.PercentualDesconto,
-            Ativo: true,
-            ExpiraEm: dto.ExpiraEm?.ToUniversalTime(),
-            LimiteUsos: dto.LimiteUsos,
-            UsosAtuais: 0);
+        if (_db is null)
+        {
+            if (_cupons.Any(c => c.Codigo.Equals(codigo, StringComparison.OrdinalIgnoreCase)))
+                return (null, $"Já existe um cupom com o código '{codigo}'.");
 
-        _cupons.Add(cupom);
-        return (cupom, null);
+            var cupom = new Cupom(
+                codigo,
+                dto.PercentualDesconto,
+                Ativo: true,
+                ExpiraEm: dto.ExpiraEm?.ToUniversalTime(),
+                LimiteUsos: dto.LimiteUsos,
+                UsosAtuais: 0);
+            _cupons.Add(cupom);
+            return (cupom, null);
+        }
+
+        if (_db.Cupons.Any(c => c.Codigo == codigo))
+            return (null, $"Já existe um cupom com o código '{codigo}'.");
+
+        var entity = new CupomEntity
+        {
+            Codigo = codigo,
+            PercentualDesconto = dto.PercentualDesconto,
+            Ativo = true,
+            ExpiraEm = dto.ExpiraEm?.ToUniversalTime(),
+            LimiteUsos = dto.LimiteUsos,
+            UsosAtuais = 0
+        };
+        _db.Cupons.Add(entity);
+        _db.SaveChanges();
+        return (ToRecord(entity), null);
     }
 
     public bool RemoverCupom(string codigo)
     {
-        var cupom = _cupons.FirstOrDefault(c => c.Codigo.Equals(codigo.Trim(), StringComparison.OrdinalIgnoreCase));
-        if (cupom is null) return false;
-        _cupons.Remove(cupom);
+        var norm = codigo.Trim().ToUpperInvariant();
+        if (_db is null)
+        {
+            var cupom = _cupons.FirstOrDefault(c => c.Codigo.Equals(norm, StringComparison.OrdinalIgnoreCase));
+            if (cupom is null) return false;
+            _cupons.Remove(cupom);
+            return true;
+        }
+
+        var entity = _db.Cupons.FirstOrDefault(c => c.Codigo == norm);
+        if (entity is null) return false;
+        _db.Cupons.Remove(entity);
+        _db.SaveChanges();
         return true;
     }
 
@@ -210,8 +337,8 @@ public class Loja
         if (string.IsNullOrWhiteSpace(codigo))
             return (null, "Informe um código de cupom.");
 
-        var cupom = _cupons.FirstOrDefault(c =>
-            c.Codigo.Equals(codigo.Trim(), StringComparison.OrdinalIgnoreCase));
+        var norm = codigo.Trim().ToUpperInvariant();
+        var cupom = Cupons.FirstOrDefault(c => c.Codigo.Equals(norm, StringComparison.OrdinalIgnoreCase));
 
         if (cupom is null || !cupom.Ativo)
             return (null, $"Cupom '{codigo.Trim()}' inválido ou inativo.");
@@ -227,7 +354,12 @@ public class Loja
 
     public Cupom? ValidarCupom(string? codigo) => ValidarCupomDetalhado(codigo).cupom;
 
-    public Pedido? BuscarPedido(int id) => _pedidos.FirstOrDefault(p => p.Id == id);
+    public Pedido? BuscarPedido(int id)
+    {
+        if (_db is null) return _pedidos.FirstOrDefault(p => p.Id == id);
+        var entity = _db.Pedidos.AsNoTracking().Include(p => p.Itens).FirstOrDefault(p => p.Id == id);
+        return entity is null ? null : ToRecord(entity);
+    }
 
     /// <summary>
     /// Valida existência, estoque e cupom opcional; em sucesso cria o pedido, decrementa estoque e contabiliza uso do cupom.
@@ -247,7 +379,6 @@ public class Loja
         }
 
         var itensPedido = new List<ItemPedido>();
-
         foreach (var item in itens)
         {
             var produto = BuscarProduto(item.ProdutoId);
@@ -261,92 +392,156 @@ public class Loja
             itensPedido.Add(new ItemPedido(produto.Id, produto.Nome, item.Quantidade, produto.Preco));
         }
 
-        foreach (var item in itensPedido)
-        {
-            var produto = BuscarProduto(item.ProdutoId)!;
-            _produtos[_produtos.IndexOf(produto)] = produto with { Estoque = produto.Estoque - item.Quantidade };
-        }
-
-        if (cupom is not null)
-        {
-            var idx = _cupons.IndexOf(cupom);
-            _cupons[idx] = cupom with { UsosAtuais = cupom.UsosAtuais + 1 };
-        }
-
         var subtotal = itensPedido.Sum(i => i.Quantidade * i.PrecoUnitario);
         var desconto = cupom is not null ? Math.Round(subtotal * (cupom.PercentualDesconto / 100m), 2) : 0m;
         var total = subtotal - desconto;
 
-        var pedido = new Pedido(
-            _proximoIdPedido++,
-            DateTime.UtcNow,
-            itensPedido,
-            total,
-            "Pendente",
-            cupom?.Codigo,
-            desconto);
-        _pedidos.Add(pedido);
+        if (_db is null)
+        {
+            foreach (var item in itensPedido)
+            {
+                var produto = _produtos.First(p => p.Id == item.ProdutoId);
+                _produtos[_produtos.IndexOf(produto)] = produto with { Estoque = produto.Estoque - item.Quantidade };
+            }
 
-        return (pedido, null);
+            if (cupom is not null)
+            {
+                var idx = _cupons.FindIndex(c => c.Codigo == cupom.Codigo);
+                _cupons[idx] = _cupons[idx] with { UsosAtuais = _cupons[idx].UsosAtuais + 1 };
+            }
+
+            var pedido = new Pedido(
+                _proximoIdPedido++,
+                DateTime.UtcNow,
+                itensPedido,
+                total,
+                "Pendente",
+                cupom?.Codigo,
+                desconto);
+            _pedidos.Add(pedido);
+            return (pedido, null);
+        }
+
+        foreach (var item in itensPedido)
+        {
+            var pEntity = _db.Produtos.First(p => p.Id == item.ProdutoId);
+            pEntity.Estoque -= item.Quantidade;
+        }
+
+        if (cupom is not null)
+        {
+            var cEntity = _db.Cupons.First(c => c.Codigo == cupom.Codigo);
+            cEntity.UsosAtuais += 1;
+        }
+
+        var pedidoEntity = new PedidoEntity
+        {
+            CriadoEm = DateTime.UtcNow,
+            Total = total,
+            Status = "Pendente",
+            CupomAplicado = cupom?.Codigo,
+            Desconto = desconto,
+            Itens = itensPedido.Select(i => new ItemPedidoEntity
+            {
+                ProdutoId = i.ProdutoId,
+                NomeProduto = i.NomeProduto,
+                Quantidade = i.Quantidade,
+                PrecoUnitario = i.PrecoUnitario
+            }).ToList()
+        };
+        _db.Pedidos.Add(pedidoEntity);
+        _db.SaveChanges();
+        return (ToRecord(pedidoEntity), null);
     }
 
     public (Pedido? pedido, string? erro) AtualizarStatusPedido(int id, string novoStatus)
     {
-        var pedido = BuscarPedido(id);
-        if (pedido is null) return (null, "Pedido não encontrado.");
-
         var statusNormalizado = StatusValidos.FirstOrDefault(s =>
             s.Equals(novoStatus?.Trim(), StringComparison.OrdinalIgnoreCase));
         if (statusNormalizado is null)
             return (null, $"Status inválido. Use: {string.Join(", ", StatusValidos)}.");
 
-        if (pedido.Status == "Cancelado")
-            return (null, "Não é possível alterar o status de um pedido cancelado.");
-
         if (statusNormalizado == "Cancelado")
             return CancelarPedido(id);
 
-        var atualizado = pedido with { Status = statusNormalizado };
-        _pedidos[_pedidos.IndexOf(pedido)] = atualizado;
-        return (atualizado, null);
+        if (_db is null)
+        {
+            var pedido = _pedidos.FirstOrDefault(p => p.Id == id);
+            if (pedido is null) return (null, "Pedido não encontrado.");
+            if (pedido.Status == "Cancelado")
+                return (null, "Não é possível alterar o status de um pedido cancelado.");
+
+            var atualizado = pedido with { Status = statusNormalizado };
+            _pedidos[_pedidos.IndexOf(pedido)] = atualizado;
+            return (atualizado, null);
+        }
+
+        var entity = _db.Pedidos.Include(p => p.Itens).FirstOrDefault(p => p.Id == id);
+        if (entity is null) return (null, "Pedido não encontrado.");
+        if (entity.Status == "Cancelado")
+            return (null, "Não é possível alterar o status de um pedido cancelado.");
+
+        entity.Status = statusNormalizado;
+        _db.SaveChanges();
+        return (ToRecord(entity), null);
     }
 
     public (Pedido? pedido, string? erro) CancelarPedido(int id)
     {
-        var pedido = BuscarPedido(id);
-        if (pedido is null) return (null, "Pedido não encontrado.");
-        if (pedido.Status == "Cancelado")
-            return (null, "Este pedido já está cancelado.");
-
-        foreach (var item in pedido.Itens)
+        if (_db is null)
         {
-            var produto = BuscarProduto(item.ProdutoId);
-            if (produto is not null)
+            var pedido = _pedidos.FirstOrDefault(p => p.Id == id);
+            if (pedido is null) return (null, "Pedido não encontrado.");
+            if (pedido.Status == "Cancelado")
+                return (null, "Este pedido já está cancelado.");
+
+            foreach (var item in pedido.Itens)
             {
-                _produtos[_produtos.IndexOf(produto)] = produto with { Estoque = produto.Estoque + item.Quantidade };
+                var produto = _produtos.FirstOrDefault(p => p.Id == item.ProdutoId);
+                if (produto is not null)
+                    _produtos[_produtos.IndexOf(produto)] = produto with { Estoque = produto.Estoque + item.Quantidade };
             }
+
+            var cancelado = pedido with { Status = "Cancelado" };
+            _pedidos[_pedidos.IndexOf(pedido)] = cancelado;
+            return (cancelado, null);
         }
 
-        var cancelado = pedido with { Status = "Cancelado" };
-        _pedidos[_pedidos.IndexOf(pedido)] = cancelado;
-        return (cancelado, null);
+        var entity = _db.Pedidos.Include(p => p.Itens).FirstOrDefault(p => p.Id == id);
+        if (entity is null) return (null, "Pedido não encontrado.");
+        if (entity.Status == "Cancelado")
+            return (null, "Este pedido já está cancelado.");
+
+        foreach (var item in entity.Itens)
+        {
+            var pEntity = _db.Produtos.FirstOrDefault(p => p.Id == item.ProdutoId);
+            if (pEntity is not null)
+                pEntity.Estoque += item.Quantidade;
+        }
+
+        entity.Status = "Cancelado";
+        _db.SaveChanges();
+        return (ToRecord(entity), null);
     }
 
     public ResumoLoja ObterResumo()
     {
+        var listaProdutos = Produtos;
+        var listaPedidos = Pedidos;
+
         var porStatus = StatusValidos.ToDictionary(
             s => s,
-            s => _pedidos.Count(p => p.Status == s));
+            s => listaPedidos.Count(p => p.Status == s));
 
-        var faturamento = _pedidos
+        var faturamento = listaPedidos
             .Where(p => p.Status != "Cancelado")
             .Sum(p => p.Total);
 
         return new ResumoLoja(
-            TotalProdutos: _produtos.Count,
-            TotalUnidadesEstoque: _produtos.Sum(p => p.Estoque),
-            ProdutosEstoqueBaixo: _produtos.Count(p => p.Estoque <= 5),
-            TotalPedidos: _pedidos.Count,
+            TotalProdutos: listaProdutos.Count,
+            TotalUnidadesEstoque: listaProdutos.Sum(p => p.Estoque),
+            ProdutosEstoqueBaixo: listaProdutos.Count(p => p.Estoque <= 5),
+            TotalPedidos: listaPedidos.Count,
             FaturamentoTotal: faturamento,
             PedidosPorStatus: porStatus);
     }

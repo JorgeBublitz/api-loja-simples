@@ -966,3 +966,11 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.login-card {
+  margin: 48px auto;
+}
+
+.login-subtitle {
+  margin-bottom: 16px;
+}

@@ -18,11 +18,33 @@
         <a href="/" class="nav-link">Loja (Cliente)</a>
         <a href="/admin.html" class="nav-link active">Painel Admin</a>
         <a href="/swagger" target="_blank" rel="noopener noreferrer" class="nav-link nav-swagger">Swagger API</a>
+        <button id="btn-logout-admin" type="button" class="btn btn-ghost btn-sm hidden">Sair</button>
       </nav>
     </div>
   </header>
 
   <main class="container">
+    <section id="admin-login-section" class="modal-card login-card">
+      <div class="modal-header">
+        <h2>Acesso Administrativo</h2>
+      </div>
+      <p class="section-subtitle login-subtitle">
+        Faça login para gerenciar produtos, pedidos e cupons (padrão local: <strong>admin</strong> / <strong>nexus2026</strong>).
+      </p>
+      <form id="form-login-admin" class="form-stack">
+        <label class="field">
+          <span>Usuário</span>
+          <input id="login-usuario" type="text" required autocomplete="username" placeholder="admin">
+        </label>
+        <label class="field">
+          <span>Senha</span>
+          <input id="login-senha" type="password" required autocomplete="current-password" placeholder="••••••••">
+        </label>
+        <button type="submit" class="btn btn-primary btn-full">Entrar no Painel</button>
+      </form>
+    </section>
+
+    <div id="admin-conteudo" class="hidden">
     <section class="page-header">
       <div>
         <h1>Painel Administrativo</h1>
@@ -86,6 +108,7 @@
           <div id="cupons-lista" class="coupons-list"></div>
         </section>
       </div>
+    </div>
     </div>
   </main>
 

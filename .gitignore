@@ -21,3 +21,11 @@ coverage/
 ## OS
 .DS_Store
 Thumbs.db
+
+## SQLite & E2E (Playwright)
+*.db
+*.db-shm
+*.db-wal
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
