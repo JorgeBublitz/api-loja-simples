@@ -185,3 +185,5 @@ app.MapPost("/pedidos/{id:int}/cancelar", (int id, Loja loja) =>
 }).WithTags("Pedidos");
 
 app.Run();
+
+public partial class Program { }
