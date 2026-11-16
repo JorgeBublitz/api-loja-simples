@@ -134,6 +134,7 @@ jobs:
         run: |
           mkdir -p zap-reports
           cp .zap/rules.tsv zap-reports/rules.tsv
+          chmod -R 777 zap-reports
           set +e
           docker run --rm --network host \
             -v "${{ github.workspace }}/zap-reports:/zap/wrk/:rw" \
@@ -142,13 +143,14 @@ jobs:
             -t http://127.0.0.1:5000/swagger/v1/swagger.json \
             -f openapi \
             -c rules.tsv \
+            -T 3 \
             -r zap-api-report.html \
             -J zap-api-report.json
           ZAP_EXIT=$?
           set -e
           echo "ZAP API Scan exit code: $ZAP_EXIT"
           if [ "$ZAP_EXIT" -ne 0 ] && [ "$ZAP_EXIT" -ne 2 ]; then
-            echo "Falha na validacao DAST (API Scan): alertas criticos/altos encontrados."
+            echo "Falha na validacao DAST (API Scan): codigo $ZAP_EXIT."
             exit "$ZAP_EXIT"
           fi
 
@@ -161,13 +163,14 @@ jobs:
             zap-baseline.py \
             -t http://127.0.0.1:5000/ \
             -c rules.tsv \
+            -T 3 \
             -r zap-web-report.html \
             -J zap-web-report.json
           ZAP_EXIT=$?
           set -e
           echo "ZAP Baseline Scan exit code: $ZAP_EXIT"
           if [ "$ZAP_EXIT" -ne 0 ] && [ "$ZAP_EXIT" -ne 2 ]; then
-            echo "Falha na validacao DAST (Web Baseline): alertas criticos/altos encontrados."
+            echo "Falha na validacao DAST (Web Baseline): codigo $ZAP_EXIT."
             exit "$ZAP_EXIT"
           fi
 
