@@ -128,11 +128,17 @@ jobs:
       - name: 1. Checkout do codigo
         uses: actions/checkout@v4
 
-      - name: 2. Executar Trivy FS (dependencias NuGet/NPM)
+      - name: 2. Configurar .NET 8 e Restore
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore
+
+      - name: 3. Executar Trivy FS (dependencias NuGet/NPM)
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/src" \
-            aquasecurity/trivy:latest \
+            ghcr.io/aquasecurity/trivy:latest \
             fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 /src
 
   e2e-playwright:
