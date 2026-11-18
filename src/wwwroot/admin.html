@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Tech — Painel Admin</title>
+  <link rel="icon" type="image/svg+xml" href="/images/logo.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">
+        <img src="/images/logo.svg" alt="Logo Nexus Tech" class="brand-logo">
+        <span class="brand-text">NEXUS <span class="brand-accent">ADMIN</span></span>
+      </a>
+      <nav class="nav-links" aria-label="Navegação administrativa">
+        <a href="/" class="nav-link">Loja (Cliente)</a>
+        <a href="/admin.html" class="nav-link active">Painel Admin</a>
+        <a href="/swagger" target="_blank" rel="noopener noreferrer" class="nav-link nav-swagger">Swagger API</a>
+        <button id="btn-logout-admin" type="button" class="btn btn-ghost btn-sm hidden">Sair</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="admin-login-section" class="modal-card login-card">
+      <div class="modal-header">
+        <h2>Acesso Administrativo</h2>
+      </div>
+      <p class="section-subtitle login-subtitle">
+        Faça login para gerenciar produtos, pedidos e cupons (padrão local: <strong>admin</strong> / <strong>nexus2026</strong>).
+      </p>
+      <form id="form-login-admin" class="form-stack">
+        <label class="field">
+          <span>Usuário</span>
+          <input id="login-usuario" type="text" required autocomplete="username" placeholder="admin">
+        </label>
+        <label class="field">
+          <span>Senha</span>
+          <input id="login-senha" type="password" required autocomplete="current-password" placeholder="••••••••">
+        </label>
+        <button type="submit" class="btn btn-primary btn-full">Entrar no Painel</button>
+      </form>
+    </section>
+
+    <div id="admin-conteudo" class="hidden">
+    <section class="page-header">
+      <div>
+        <h1>Painel Administrativo</h1>
+        <p>Cadastre produtos, ajuste estoque, gerencie pedidos e acompanhe métricas da loja.</p>
+      </div>
+      <button id="btn-novo-produto" type="button" class="btn btn-primary">+ Cadastrar Produto</button>
+    </section>
+
+    <section class="stats-grid" aria-label="Métricas da loja">
+      <article class="stat-card">
+        <span class="stat-label">Faturamento Total</span>
+        <strong id="stat-faturamento" class="stat-value stat-success">R$ 0,00</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">Produtos Cadastrados</span>
+        <strong id="stat-produtos" class="stat-value">0</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">Unidades em Estoque</span>
+        <strong id="stat-estoque" class="stat-value">0</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-label">Estoque Baixo (&le; 5)</span>
+        <strong id="stat-baixo" class="stat-value stat-warn">0</strong>
+      </article>
+    </section>
+
+    <div class="admin-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Produtos &amp; Estoque</h2>
+          <input id="busca-admin" type="search" class="search-input" placeholder="Filtrar produtos..." aria-label="Filtrar produtos">
+        </div>
+        <div id="admin-produtos-lista" class="admin-product-list" aria-live="polite"></div>
+      </section>
+
+      <div class="admin-column">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Gestão de Pedidos</h2>
+            <select id="filtro-status" class="select-input" aria-label="Filtrar pedidos por status">
+              <option value="">Todos os status</option>
+              <option value="Pendente">Pendente</option>
+              <option value="Pago">Pago</option>
+              <option value="Enviado">Enviado</option>
+              <option value="Entregue">Entregue</option>
+              <option value="Cancelado">Cancelado</option>
+            </select>
+          </div>
+          <div id="admin-pedidos-lista" class="orders-list" aria-live="polite"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Cupons &amp; Promoções</h2>
+            <div class="catalog-controls">
+              <span id="api-health" class="status-badge status-entregue">Verificando...</span>
+              <button id="btn-novo-cupom" type="button" class="btn btn-primary btn-sm">+ Novo Cupom</button>
+            </div>
+          </div>
+          <div id="cupons-lista" class="coupons-list"></div>
+        </section>
+      </div>
+    </div>
+    </div>
+  </main>
+
+  <div id="modal-produto" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-titulo">Novo Produto</h3>
+        <button id="btn-fechar-modal" type="button" class="btn-icon" aria-label="Fechar modal">&times;</button>
+      </div>
+      <form id="form-produto" class="form-stack">
+        <input id="produto-id" type="hidden">
+        <label class="field">
+          <span>Nome do produto</span>
+          <input id="produto-nome" type="text" required maxlength="100" placeholder="Ex.: Teclado Mecânico">
+        </label>
+        <label class="field">
+          <span>Categoria</span>
+          <input id="produto-categoria" type="text" maxlength="40" placeholder="Ex.: Periféricos, Áudio, Monitores">
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Preço (R$)</span>
+            <input id="produto-preco" type="number" step="0.01" min="0" required placeholder="0,00">
+          </label>
+          <label class="field">
+            <span>Estoque</span>
+            <input id="produto-estoque" type="number" step="1" min="0" required placeholder="0">
+          </label>
+        </div>
+        <label class="field">
+          <span>Imagem do produto</span>
+          <select id="produto-imagem-preset">
+            <option value="/images/ps5.jpg">PlayStation 5</option>
+            <option value="/images/gta6.jpg">GTA VI (Jogo)</option>
+            <option value="/images/switch.jpg">Nintendo Switch</option>
+            <option value="/images/dualsense.jpg">Controle DualSense</option>
+            <option value="/images/iphone.jpg">iPhone Pro</option>
+            <option value="/images/macbook.jpg">MacBook Pro</option>
+            <option value="/images/teclado.jpg">Teclado Mecânico</option>
+            <option value="/images/mouse.jpg">Mouse Pro</option>
+            <option value="/images/headset.jpg">Headset Studio</option>
+            <option value="/images/monitor.jpg">Monitor 4K</option>
+            <option value="custom">URL HTTPS personalizada...</option>
+          </select>
+        </label>
+        <label id="campo-imagem-custom" class="field hidden">
+          <span>URL da imagem (https://)</span>
+          <input id="produto-imagem-url" type="url" placeholder="https://exemplo.com/foto.png">
+        </label>
+        <div class="modal-actions">
+          <button id="btn-cancelar-modal" type="button" class="btn btn-ghost">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Produto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modal-cupom" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-cupom-titulo">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-cupom-titulo">Novo Cupom de Desconto</h3>
+        <button id="btn-fechar-cupom" type="button" class="btn-icon" aria-label="Fechar modal">&times;</button>
+      </div>
+      <form id="form-cupom" class="form-stack">
+        <label class="field">
+          <span>Código do cupom</span>
+          <input id="cupom-codigo" type="text" required maxlength="30" placeholder="Ex.: PRIMEIROS1000">
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Desconto (%)</span>
+            <input id="cupom-desconto" type="number" step="0.5" min="1" max="100" required placeholder="15">
+          </label>
+          <label class="field">
+            <span>Limite de usos (opcional)</span>
+            <input id="cupom-limite" type="number" step="1" min="1" placeholder="Ex.: 1000">
+          </label>
+        </div>
+        <label class="field">
+          <span>Válido até (opcional)</span>
+          <input id="cupom-expira" type="datetime-local">
+        </label>
+        <div class="modal-actions">
+          <button id="btn-cancelar-cupom" type="button" class="btn btn-ghost">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Criar Cupom</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <span>&copy; 2026 Nexus Tech Admin · Gestão de Catálogo &amp; Pedidos</span>
+      <div class="footer-links">
+        <a href="/">Loja</a>
+        <a href="/admin.html">Admin</a>
+        <a href="/swagger" target="_blank" rel="noopener noreferrer">Swagger</a>
+      </div>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="/admin.js" defer></script>
+</body>
+</html>

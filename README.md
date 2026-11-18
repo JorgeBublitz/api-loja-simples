@@ -1,38 +1,52 @@
-# Api-Loja
+# Nexus Tech — Api-Loja
 
 ![CI](https://github.com/JorgeBublitz/api-loja-simples/actions/workflows/ci.yml/badge.svg)
 
-API REST simples de loja (produtos e pedidos) em **.NET 8** — versão 1.0.1.
-
-Projeto de estudo com foco em: repositório no GitHub, pipeline de CI (GitHub Actions) e fluxo Gitflow.
+Plataforma de e-commerce **Nexus Tech** (API REST em **.NET 8** + Interface Dark Edition para **Cliente** e **Admin**) com pipeline **DevSecOps** (2 nós **SAST** + 1 nó **DAST**) — versão 1.2.0.
 
 ## Stack
 
-- .NET 8 (Minimal API) - dados em memória, sem banco externo
-- xUnit - testes de domínio (sem subir servidor HTTP)
-- GitHub Actions - pipeline de build e testes
-- Gitflow - `main`, `develop`, branches `feature/*`, `release/*` e `hotfix/*`
+- **.NET 8 (Minimal API)** — catálogo, categorias, estoque, cupons com validade/limite e ciclo de pedidos em memória
+- **Interface Web Dark Edition (`src/wwwroot/`)**:
+  - **Loja (Cliente)** em `/` — vitrine com fotos de estúdio, filtros por categoria, busca, ordenação, carrinho com cupom e acompanhamento de pedidos
+  - **Painel Admin** em `/admin.html` — dashboard de faturamento/estoque, cadastro e edição de produtos, reposição rápida, gestão de pedidos e criação de cupons com validade e limite de usos
+- **xUnit** — 13 testes unitários de domínio
+- **GitHub Actions (Secure CI/CD)** — `Build e Testes`, `SAST 1 (Semgrep)`, `SAST 2 (Microsoft DevSkim)` e `DAST (OWASP ZAP)`
+- **Gitflow** — `main`, `develop`, branches `feature/*`, `release/*` e `hotfix/*`
 
 ## Endpoints
 
-| Método | Rota                 | Descrição                              |
-|--------|----------------------|----------------------------------------|
-| GET    | `/produtos`          | Lista todos os produtos                |
-| GET    | `/produtos/{id}`     | Busca produto por id                   |
-| POST   | `/produtos`          | Cadastra produto `{ nome, preco, estoque }` |
-| PUT    | `/produtos/{id}`     | Atualiza produto                       |
-| DELETE | `/produtos/{id}`     | Remove produto                         |
-| GET    | `/pedidos`           | Lista todos os pedidos                 |
-| POST   | `/pedidos`           | Cria pedido `[{ produtoId, quantidade }]` |
-
-Regras de negócio do pedido: produto precisa existir, quantidade positiva e estoque suficiente; o estoque é decrementado no momento da venda.
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/` | Loja do Cliente (Dark Edition) |
+| GET | `/admin.html` | Painel Administrativo |
+| GET | `/swagger` | Documentação interativa OpenAPI |
+| GET | `/health` | Healthcheck da aplicação |
+| GET | `/resumo` | Métricas de faturamento, estoque e pedidos |
+| GET | `/categorias` | Lista categorias com contagem de produtos |
+| GET | `/produtos` | Lista produtos (`?categoria=&busca=&ordenar=`) |
+| GET | `/produtos/{id}` | Busca produto por ID |
+| POST | `/produtos` | Cadastra produto |
+| PUT | `/produtos/{id}` | Atualiza produto |
+| PATCH | `/produtos/{id}/estoque` | Ajusta/repõe estoque |
+| DELETE | `/produtos/{id}` | Remove produto |
+| GET | `/cupons` | Lista cupons cadastrados |
+| POST | `/cupons` | Cadastra cupom com validade e limite de usos |
+| POST | `/cupons/validar` | Valida código de cupom |
+| DELETE | `/cupons/{codigo}` | Remove cupom |
+| GET | `/pedidos` | Lista pedidos (`?status=`) |
+| GET | `/pedidos/{id}` | Busca pedido por ID |
+| POST | `/pedidos` | Cria pedido (`?cupom=`) com baixa no estoque |
+| PATCH | `/pedidos/{id}/status` | Avança status (`Pendente` → `Pago` → `Enviado` → `Entregue`) |
+| POST | `/pedidos/{id}/cancelar` | Cancela pedido e estorna estoque |
 
 ## Estrutura
 
 ```
-src/         -> API (ApiLoja.csproj, Program.cs: endpoints, Loja.cs: dominio e modelos)
-tests/       -> ApiLoja.Tests.csproj + LojaTests.cs (testes xUnit do dominio)
-.github/workflows/ -> pipeline CI
+src/               -> API (.NET 8), domínio (Loja.cs) e front-end (wwwroot/)
+tests/             -> ApiLoja.Tests.csproj + LojaTests.cs (13 testes xUnit)
+.zap/              -> regras de validação DAST do OWASP ZAP
+.github/workflows/ -> pipeline DevSecOps (Build/Testes, 2x SAST e 1x DAST)
 ```
 
 ## Como executar
@@ -41,7 +55,9 @@ tests/       -> ApiLoja.Tests.csproj + LojaTests.cs (testes xUnit do dominio)
 dotnet run --project src/ApiLoja.csproj
 ```
 
-A API sobe com Swagger em `http://localhost:5000/swagger` (ou a porta indicada no console).
+- **Loja (Cliente)**: `http://localhost:5000/`
+- **Painel Admin**: `http://localhost:5000/admin.html`
+- **Swagger UI**: `http://localhost:5000/swagger`
 
 ## Como testar
 
@@ -49,16 +65,11 @@ A API sobe com Swagger em `http://localhost:5000/swagger` (ou a porta indicada n
 dotnet test
 ```
 
-## Pipeline
+## Pipeline DevSecOps ([ci.yml](.github/workflows/ci.yml))
 
-O workflow `.github/workflows/ci.yml` tem **um único job**, disparado a cada push em `main`/`develop` e em pull requests para essas branches:
+Disparada a cada `push` ou `pull_request` para `main` e `develop`, com 4 nós e validações automáticas:
 
-- **Build e Testes** — checkout → setup-dotnet 8 → `restore` → `build` → `test` (8 testes)
-
-## Fluxo Gitflow
-
-- `main`: código estável/liberado
-- `develop`: integração contínua do desenvolvimento
-- `feature/*`: novas funcionalidades, mescladas via pull request no `develop`
-- `release/*`: preparação de versão, mesclada no `main`
-- `hotfix/*`: correção urgente em produção, mesclada no `main` e de volta no `develop`
+1. **Build e Testes** — `restore` → `build` → `test` (13 testes xUnit)
+2. **SAST 1 (Semgrep)** — análise estática (`p/csharp`, `p/javascript`, `p/security-audit`, `p/owasp-top-ten`), falha com `--error` e publica `sast-semgrep-report` (SARIF)
+3. **SAST 2 (Microsoft DevSkim)** — análise estática .NET/Web via `Microsoft.CST.DevSkim.CLI`, falha em achados `Critical`/`Important` e publica `sast-devskim-report` (SARIF)
+4. **DAST (OWASP ZAP)** — executa após os anteriores, sobe a API no runner, roda `zap-api-scan.py` (OpenAPI) e `zap-baseline.py` (Interface Web) validados por `.zap/rules.tsv`, e publica `owasp-zap-dast-reports` (HTML/JSON)

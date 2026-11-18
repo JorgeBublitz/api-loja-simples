@@ -1,0 +1,12 @@
+# Regras de validação do OWASP ZAP (DAST)
+# Formato: <rule_id>\t<ACTION>\t<description>
+# Ações: FAIL (quebra a esteira), WARN (registra no relatório), IGNORE (ignora)
+
+# Em CI local via HTTP (sem TLS), HSTS não se aplica
+10035	IGNORE	Strict-Transport-Security Header Not Set (HTTP local no runner)
+# Cache-Control informativo em assets estáticos/JSON
+10049	WARN	Storable and Cacheable Content
+10015	WARN	Re-examine Cache-control Directives
+# Timestamp / Tech disclosure informativo
+10096	WARN	Timestamp Disclosure
+10036	WARN	Server Leaks Version Information via HTTP Response Header

@@ -104,4 +104,86 @@ public class LojaTests
         Assert.NotNull(erro);
         Assert.Contains("não encontrado", erro);
     }
+
+    [Fact]
+    public void CriarPedido_ComCupomValidoAplicaDesconto()
+    {
+        var loja = LojaComProduto(preco: 100m, estoque: 5);
+
+        var (pedido, erro) = loja.CriarPedido([new ItemPedidoDto(1, 2)], "BEMVINDO10");
+
+        Assert.Null(erro);
+        Assert.NotNull(pedido);
+        Assert.Equal("BEMVINDO10", pedido!.CupomAplicado);
+        Assert.Equal(20m, pedido.Desconto);
+        Assert.Equal(180m, pedido.Total);
+    }
+
+    [Fact]
+    public void CancelarPedido_EstornaEstoqueEAtualizaStatus()
+    {
+        var loja = LojaComProduto(preco: 50m, estoque: 5);
+        var (pedido, _) = loja.CriarPedido([new ItemPedidoDto(1, 3)]);
+        Assert.Equal(2, loja.BuscarProduto(1)!.Estoque);
+
+        var (cancelado, erro) = loja.CancelarPedido(pedido!.Id);
+
+        Assert.Null(erro);
+        Assert.Equal("Cancelado", cancelado!.Status);
+        Assert.Equal(5, loja.BuscarProduto(1)!.Estoque);
+    }
+
+    [Fact]
+    public void AjustarEstoque_SomaERecusaNegativo()
+    {
+        var loja = LojaComProduto(estoque: 4);
+
+        var (reposto, erroOk) = loja.AjustarEstoque(1, 6);
+        Assert.Null(erroOk);
+        Assert.Equal(10, reposto!.Estoque);
+
+        var (invalido, erroNeg) = loja.AjustarEstoque(1, -20);
+        Assert.Null(invalido);
+        Assert.NotNull(erroNeg);
+    }
+
+    [Fact]
+    public void ListarProdutos_FiltraPorCategoriaEOrdenaPorPreco()
+    {
+        var loja = new Loja();
+        loja.AdicionarProduto("Teclado", 300m, 5, categoria: "Periféricos");
+        loja.AdicionarProduto("Mouse", 150m, 5, categoria: "Periféricos");
+        loja.AdicionarProduto("Headset", 500m, 5, categoria: "Áudio");
+
+        var perifericos = loja.ListarProdutos(categoria: "Periféricos", ordenar: "preco_asc");
+
+        Assert.Equal(2, perifericos.Count);
+        Assert.Equal("Mouse", perifericos[0].Nome);
+        Assert.Equal("Teclado", perifericos[1].Nome);
+    }
+
+    [Fact]
+    public void CadastrarCupom_RespeitaLimiteDeUsosEExpiracao()
+    {
+        var loja = LojaComProduto(preco: 100m, estoque: 10);
+
+        var (cupomLimite, errLimite) = loja.CadastrarCupom(new CupomDto("PRIMEIRO1", 15m, null, 1));
+        Assert.Null(errLimite);
+        Assert.NotNull(cupomLimite);
+
+        var (pedido1, err1) = loja.CriarPedido([new ItemPedidoDto(1, 1)], "PRIMEIRO1");
+        Assert.Null(err1);
+        Assert.Equal(85m, pedido1!.Total);
+
+        // Segundo uso deve falhar porque o limite era 1
+        var (pedido2, err2) = loja.CriarPedido([new ItemPedidoDto(1, 1)], "PRIMEIRO1");
+        Assert.Null(pedido2);
+        Assert.Contains("limite", err2);
+
+        // Cupom já expirado deve falhar na validação
+        loja.CadastrarCupom(new CupomDto("EXPIRADO", 10m, DateTime.UtcNow.AddMinutes(-5), null));
+        var (cupomExp, errExp) = loja.ValidarCupomDetalhado("EXPIRADO");
+        Assert.Null(cupomExp);
+        Assert.Contains("expirado", errExp);
+    }
 }
