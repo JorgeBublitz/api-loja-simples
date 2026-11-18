@@ -1,16 +1,19 @@
 name: CI
 
+# Gatilho: executa em push e pull_request para main e develop (Gitflow)
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
+# Concorrência: cancela execuções antigas da mesma branch/PR se entrar um commit novo
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # 1. Build e Testes: restaura dependências, compila a API em Release e roda os 23 testes (unitários + integração HTTP)
   build-e-testes:
     name: Build e Testes
     runs-on: ubuntu-latest
@@ -33,6 +36,7 @@ jobs:
       - name: 5. Testes (Unitarios + Integracao HTTP)
         run: dotnet test --no-build --configuration Release --verbosity normal
 
+  # 2. Secrets Scan (Gitleaks): varre o código e todo o histórico Git em busca de senhas, tokens ou chaves vazadas
   secrets-gitleaks:
     name: Secrets Scan (Gitleaks)
     runs-on: ubuntu-latest
@@ -50,6 +54,7 @@ jobs:
             zricethezav/gitleaks:latest \
             detect --source="/path" --verbose --redact
 
+  # 3. SAST 1 (Semgrep): análise estática (caixa branca) em C#, JS e OWASP Top 10; falha em erros e gera relatório SARIF
   sast-semgrep:
     name: SAST 1 (Semgrep)
     runs-on: ubuntu-latest
@@ -81,6 +86,7 @@ jobs:
           path: semgrep-results.sarif
           if-no-files-found: warn
 
+  # 4. SAST 2 (Microsoft DevSkim): análise estática (caixa branca) focada em .NET/Web; falha em achados Critical/Important e gera SARIF
   sast-devskim:
     name: SAST 2 (Microsoft DevSkim)
     runs-on: ubuntu-latest
@@ -120,6 +126,7 @@ jobs:
           path: devskim-results.sarif
           if-no-files-found: warn
 
+  # 5. SCA Scan (Trivy): analisa dependências de terceiros (NuGet/NPM) em busca de vulnerabilidades (CVEs) HIGH ou CRITICAL
   sca-trivy:
     name: SCA Scan (Trivy)
     runs-on: ubuntu-latest
@@ -141,6 +148,7 @@ jobs:
             ghcr.io/aquasecurity/trivy:latest \
             fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 /src
 
+  # 6. E2E Browser (Playwright): abre um navegador Chromium real e testa os fluxos do Cliente e do Admin ponta a ponta
   e2e-playwright:
     name: E2E Browser (Playwright)
     runs-on: ubuntu-latest
@@ -168,6 +176,7 @@ jobs:
         working-directory: e2e
         run: npm run test:e2e
 
+  # 7. DAST (OWASP ZAP): análise dinâmica (caixa preta) com a API rodando; ataca rotas OpenAPI e interface web, valida via .zap/rules.tsv e gera relatórios HTML/JSON
   dast:
     name: DAST (OWASP ZAP)
     runs-on: ubuntu-latest
